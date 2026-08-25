@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "RSS Badge Only",
+  "version": "0.1.0",
+  "description": "Shows unread RSS items as a number on the extension icon.",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "RSS feeds",
+    "default_popup": "popup.html"
+  }
+}
