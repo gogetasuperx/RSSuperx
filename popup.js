@@ -1,23 +1,96 @@
+function showFatalError(message) {
+  const el = document.getElementById("fatalError");
+
+  if (el) {
+    el.textContent += message + "\n";
+  }
+
+  console.error(message);
+}
+
+window.addEventListener("error", (event) => {
+  showFatalError(
+    "Popup script error: " + (event.message || String(event))
+  );
+});
+
+async function sendMessageSafe(message) {
+  try {
+    if (
+      !chrome ||
+      !chrome.runtime ||
+      typeof chrome.runtime.sendMessage !== "function"
+    ) {
+      return {
+        ok: false,
+        error: "chrome.runtime.sendMessage is unavailable."
+      };
+    }
+
+    return await chrome.runtime.sendMessage(message);
+  } catch (error) {
+    const text = (error && error.message) || String(error);
+
+    console.error("sendMessage failed", message, error);
+
+    return {
+      ok: false,
+      error: text
+    };
+  }
+}
+
 async function getState() {
-  const { state } = await chrome.storage.local.get("state");
+  try {
+    if (
+      !chrome ||
+      !chrome.storage ||
+      !chrome.storage.local
+    ) {
+      throw new Error("chrome.storage.local is unavailable.");
+    }
 
-  const safe = state || {};
+    const { state } = await chrome.storage.local.get("state");
 
-  return {
-    feeds: Array.isArray(safe.feeds) ? safe.feeds : [],
-    items: Array.isArray(safe.items) ? safe.items : []
-  };
+    const safe = state || {};
+
+    return {
+      feeds: Array.isArray(safe.feeds) ? safe.feeds : [],
+      items: Array.isArray(safe.items) ? safe.items : []
+    };
+  } catch (error) {
+    showFatalError(
+      "Storage error: " + ((error && error.message) || String(error))
+    );
+
+    return {
+      feeds: [],
+      items: []
+    };
+  }
 }
 
 async function render() {
-  const state = await getState();
+  try {
+    const state = await getState();
 
-  renderFeeds(state.feeds);
-  renderItems(state.items);
+    renderFeeds(state.feeds);
+    renderItems(state.items);
+  } catch (error) {
+    showFatalError(
+      "Render error: " + ((error && error.message) || String(error))
+    );
+  }
 }
 
 function renderFeeds(feeds) {
   const feedList = document.getElementById("feedList");
+
+  if (!feedList) {
+    showFatalError("Missing HTML element: #feedList");
+    return;
+  }
+
   feedList.innerHTML = "";
 
   if (feeds.length === 0) {
@@ -42,7 +115,7 @@ function renderFeeds(feeds) {
     removeButton.textContent = "Remove";
 
     removeButton.addEventListener("click", async () => {
-      await chrome.runtime.sendMessage({
+      await sendMessageSafe({
         type: "REMOVE_FEED",
         url
       });
@@ -58,6 +131,12 @@ function renderFeeds(feeds) {
 
 function renderItems(items) {
   const list = document.getElementById("list");
+
+  if (!list) {
+    showFatalError("Missing HTML element: #list");
+    return;
+  }
+
   list.innerHTML = "";
 
   const unread = items.filter((item) => !item.read);
@@ -88,10 +167,17 @@ function renderItems(items) {
       event.preventDefault();
 
       if (item.link) {
-        await chrome.tabs.create({ url: item.link });
+        try {
+          await chrome.tabs.create({ url: item.link });
+        } catch (error) {
+          showFatalError(
+            "Could not open link: " +
+              ((error && error.message) || String(error))
+          );
+        }
       }
 
-      await chrome.runtime.sendMessage({
+      await sendMessageSafe({
         type: "MARK_READ",
         id: item.id
       });
@@ -116,6 +202,11 @@ async function addFeedFromInput() {
   const input = document.getElementById("feedUrl");
   const error = document.getElementById("feedError");
 
+  if (!input || !error) {
+    showFatalError("Missing HTML element: #feedUrl or #feedError");
+    return;
+  }
+
   const url = input.value.trim();
 
   error.textContent = "";
@@ -125,7 +216,7 @@ async function addFeedFromInput() {
     return;
   }
 
-  const response = await chrome.runtime.sendMessage({
+  const response = await sendMessageSafe({
     type: "ADD_FEED",
     url
   });
@@ -140,28 +231,61 @@ async function addFeedFromInput() {
   render();
 }
 
-document.getElementById("addFeed").addEventListener("click", async () => {
-  await addFeedFromInput();
-});
+function bindEvents() {
+  const addButton = document.getElementById("addFeed");
 
-document.getElementById("feedUrl").addEventListener("keydown", async (event) => {
-  if (event.key === "Enter") {
-    await addFeedFromInput();
+  if (addButton) {
+    addButton.addEventListener("click", async () => {
+      await addFeedFromInput();
+    });
+  } else {
+    showFatalError("Missing HTML element: #addFeed");
   }
-});
 
-document.getElementById("markAll").addEventListener("click", async () => {
-  await chrome.runtime.sendMessage({ type: "MARK_ALL_READ" });
-  render();
-});
+  const input = document.getElementById("feedUrl");
 
-document.getElementById("clearItems").addEventListener("click", async () => {
-  await chrome.runtime.sendMessage({ type: "CLEAR_ITEMS" });
-  render();
-});
+  if (input) {
+    input.addEventListener("keydown", async (event) => {
+      if (event.key === "Enter") {
+        await addFeedFromInput();
+      }
+    });
+  }
 
-// Automatically clear badge number when popup is opened.
-(async () => {
-  await chrome.runtime.sendMessage({ type: "MARK_ALL_READ" });
-  render();
+  const markAllButton = document.getElementById("markAll");
+
+  if (markAllButton) {
+    markAllButton.addEventListener("click", async () => {
+      await sendMessageSafe({ type: "MARK_ALL_READ" });
+      render();
+    });
+  } else {
+    showFatalError("Missing HTML element: #markAll");
+  }
+
+  const clearButton = document.getElementById("clearItems");
+
+  if (clearButton) {
+    clearButton.addEventListener("click", async () => {
+      await sendMessageSafe({ type: "CLEAR_ITEMS" });
+      render();
+    });
+  } else {
+    showFatalError("Missing HTML element: #clearItems");
+  }
+}
+
+(async function init() {
+  try {
+    bindEvents();
+
+    // Automatically clear badge when popup opens.
+    await sendMessageSafe({ type: "MARK_ALL_READ" });
+
+    await render();
+  } catch (error) {
+    showFatalError(
+      "Init error: " + ((error && error.message) || String(error))
+    );
+  }
 })();
