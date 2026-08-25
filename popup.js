@@ -70,4 +70,7 @@ document.getElementById("markAll").addEventListener("click", async () => {
   render();
 });
 
-render();
+(async () => {
+  await chrome.runtime.sendMessage({ type: "MARK_ALL_READ" });
+  render();
+})();
