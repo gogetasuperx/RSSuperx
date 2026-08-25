@@ -142,6 +142,30 @@
       background: #fff8f8;
     }
 
+    .settings {
+      display: flex;
+      align-items: center;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: normal;
+      user-select: none;
+    }
+
+    .toggle input {
+      flex: none;
+      min-width: auto;
+      width: auto;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+    }
+
     #fatalError {
       color: #d93025;
       white-space: pre-wrap;
@@ -158,10 +182,6 @@
       <button id="clearItems" title="Removes saved articles but keeps your feeds">
         Clear items
       </button>
-
-      <button id="markAll">
-        Mark all read
-      </button>
     </div>
   </header>
 
@@ -177,6 +197,16 @@
     </button>
 
     <div id="feedError" class="error"></div>
+  </section>
+
+  <section class="settings">
+    <label
+      class="toggle"
+      title="When enabled, opening RSSuperx clears the badge automatically."
+    >
+      <input type="checkbox" id="autoMarkRead" checked />
+      Auto-clear badge when popup opens
+    </label>
   </section>
 
   <section>
