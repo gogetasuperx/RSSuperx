@@ -1,13 +1,21 @@
 const ALARM_NAME = "rss-check";
 
 // How often to check feeds.
-// 1 minute is fast. Use 5 if you want less battery/network use.
 const CHECK_EVERY_MINUTES = 1;
 
-const MAX_STORED_ITEMS = 200;
-const MAX_ITEMS_PER_FEED = 20;
+// How many visible items to keep in popup list.
+const MAX_VISIBLE_ITEMS = 200;
+
+// How many entries to inspect from each feed.
+const MAX_ITEMS_PER_FETCH = 50;
+
+// How many seen item IDs to remember per feed.
+// This prevents old cleared posts from coming back.
+const MAX_SEEN_PER_FEED = 500;
 
 chrome.runtime.onInstalled.addListener(async () => {
+  await initializeSeenIfNeeded();
+
   let state = await getState();
 
   if (!state.initialized) {
@@ -42,12 +50,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "ADD_FEED") {
-    addFeed(message.url).then((result) => sendResponse(result));
+    addFeed(message.url, message.name).then((result) =>
+      sendResponse(result)
+    );
     return true;
   }
 
   if (message.type === "REMOVE_FEED") {
     removeFeed(message.url).then((result) => sendResponse(result));
+    return true;
+  }
+
+  if (message.type === "RENAME_FEED") {
+    renameFeed(message.url, message.name).then((result) =>
+      sendResponse(result)
+    );
     return true;
   }
 
@@ -72,10 +89,24 @@ async function getState() {
 
   const safe = state || {};
 
+  const feeds = Array.isArray(safe.feeds)
+    ? safe.feeds.map(normalizeFeed).filter(Boolean)
+    : [];
+
+  const items = Array.isArray(safe.items)
+    ? safe.items.filter((item) => item && item.id)
+    : [];
+
+  const seen =
+    safe.seen && typeof safe.seen === "object" && !Array.isArray(safe.seen)
+      ? safe.seen
+      : {};
+
   return {
     initialized: Boolean(safe.initialized),
-    feeds: Array.isArray(safe.feeds) ? safe.feeds : [],
-    items: Array.isArray(safe.items) ? safe.items : []
+    feeds,
+    items,
+    seen
   };
 }
 
@@ -83,8 +114,66 @@ async function saveState(state) {
   await chrome.storage.local.set({ state });
 }
 
-async function addFeed(inputUrl) {
+// One-time migration:
+// If old version did not have a separate "seen" memory,
+// mark current feed entries as seen and hide old visible items.
+async function initializeSeenIfNeeded() {
+  const { state } = await chrome.storage.local.get("state");
+
+  const existing = state || {};
+
+  // Already migrated/new format.
+  if (
+    existing.seen &&
+    typeof existing.seen === "object" &&
+    !Array.isArray(existing.seen)
+  ) {
+    return;
+  }
+
+  const newState = await getState();
+
+  newState.seen = {};
+
+  for (const feed of newState.feeds) {
+    try {
+      const response = await fetch(feed.url, {
+        cache: "no-store",
+        headers: {
+          Accept:
+            "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
+        }
+      });
+
+      if (!response.ok) {
+        newState.seen[feed.url] = [];
+        continue;
+      }
+
+      const xml = await response.text();
+      const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FETCH);
+
+      const rawIds = feedItems
+        .map((item) => item.link || item.guid || item.title)
+        .filter(Boolean);
+
+      newState.seen[feed.url] = rawIds.slice(0, MAX_SEEN_PER_FEED);
+    } catch (error) {
+      console.error("initializeSeenIfNeeded feed error:", feed.url, error);
+      newState.seen[feed.url] = [];
+    }
+  }
+
+  // Hide old items from previous version so old posts do not show as new.
+  newState.items = [];
+  newState.initialized = true;
+
+  await saveState(newState);
+}
+
+async function addFeed(inputUrl, inputName) {
   const url = normalizeUrl(inputUrl);
+  const name = cleanName(inputName);
 
   if (!url) {
     return {
@@ -95,7 +184,16 @@ async function addFeed(inputUrl) {
 
   const state = await getState();
 
-  if (state.feeds.includes(url)) {
+  const existing = state.feeds.find((feed) => feed.url === url);
+
+  if (existing) {
+    // If user adds same URL with a new name, update name.
+    if (name && existing.name !== name) {
+      existing.name = name;
+      await saveState(state);
+      return { ok: true };
+    }
+
     return {
       ok: false,
       error: "Already subscribed to this feed."
@@ -119,14 +217,20 @@ async function addFeed(inputUrl) {
     }
 
     const xml = await response.text();
-    const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FEED);
+    const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FETCH);
 
-    state.feeds.push(url);
+    const rawIds = feedItems
+      .map((item) => item.link || item.guid || item.title)
+      .filter(Boolean);
 
-    // Mark existing feed items as read so old posts do not flood the badge.
-    addItemsToState(state, url, feedItems, true);
+    state.feeds.push({
+      url,
+      name
+    });
 
-    state.items = state.items.slice(0, MAX_STORED_ITEMS);
+    // Remember current items as already seen.
+    // Do NOT show them as new old posts.
+    state.seen[url] = rawIds.slice(0, MAX_SEEN_PER_FEED);
 
     await saveState(state);
     await updateBadge();
@@ -145,15 +249,22 @@ async function addFeed(inputUrl) {
 
 async function removeFeed(inputUrl) {
   const url = normalizeUrl(inputUrl);
+
   const state = await getState();
 
   state.feeds = state.feeds.filter(
-    (feed) => feed !== url && feed !== inputUrl
+    (feed) => feed.url !== url && feed.url !== inputUrl
   );
 
   state.items = state.items.filter(
     (item) => item.feedUrl !== url && item.feedUrl !== inputUrl
   );
+
+  delete state.seen[url];
+
+  if (inputUrl && inputUrl !== url) {
+    delete state.seen[inputUrl];
+  }
 
   await saveState(state);
   await updateBadge();
@@ -161,9 +272,40 @@ async function removeFeed(inputUrl) {
   return { ok: true };
 }
 
+async function renameFeed(inputUrl, inputName) {
+  const url = normalizeUrl(inputUrl);
+  const name = cleanName(inputName);
+
+  if (!url) {
+    return {
+      ok: false,
+      error: "Feed URL is missing."
+    };
+  }
+
+  const state = await getState();
+
+  const feed = state.feeds.find((x) => x.url === url);
+
+  if (!feed) {
+    return {
+      ok: false,
+      error: "Feed not found."
+    };
+  }
+
+  feed.name = name;
+
+  await saveState(state);
+
+  return { ok: true };
+}
+
 async function clearItems() {
   const state = await getState();
 
+  // Remove visible items only.
+  // Keep state.seen so old posts do not return.
   state.items = [];
 
   await saveState(state);
@@ -175,11 +317,13 @@ async function clearItems() {
 async function checkFeeds(markAsRead, onlyFeedUrl = null) {
   const state = await getState();
 
-  const feeds = onlyFeedUrl ? [onlyFeedUrl] : state.feeds;
+  const feedUrls = onlyFeedUrl
+    ? [onlyFeedUrl]
+    : state.feeds.map((feed) => feed.url);
 
-  let changed = false;
+  let storageChanged = false;
 
-  for (const feedUrl of feeds) {
+  for (const feedUrl of feedUrls) {
     try {
       const response = await fetch(feedUrl, {
         cache: "no-store",
@@ -195,58 +339,71 @@ async function checkFeeds(markAsRead, onlyFeedUrl = null) {
       }
 
       const xml = await response.text();
-      const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FEED);
+      const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FETCH);
 
-      if (addItemsToState(state, feedUrl, feedItems, markAsRead)) {
-        changed = true;
+      if (!Array.isArray(state.seen[feedUrl])) {
+        state.seen[feedUrl] = [];
+      }
+
+      const seenSet = new Set(state.seen[feedUrl]);
+      let seenChanged = false;
+
+      for (const item of feedItems) {
+        const rawId = item.link || item.guid || item.title;
+
+        if (!rawId) {
+          continue;
+        }
+
+        if (!seenSet.has(rawId)) {
+          seenSet.add(rawId);
+          seenChanged = true;
+
+          // If markAsRead is true, we only remember it, not show it.
+          if (!markAsRead) {
+            const id = `${feedUrl}#${rawId}`;
+
+            const alreadyVisible = state.items.some((x) => x.id === id);
+
+            if (!alreadyVisible) {
+              state.items.unshift({
+                id,
+                title: cleanText(item.title) || "New item",
+                link: item.link || feedUrl,
+                feedUrl,
+                addedAt: Date.now(),
+                read: false
+              });
+
+              storageChanged = true;
+            }
+          }
+        }
+      }
+
+      if (seenChanged) {
+        state.seen[feedUrl] = Array.from(seenSet).slice(
+          -MAX_SEEN_PER_FEED
+        );
+
+        storageChanged = true;
       }
     } catch (error) {
       console.error(`Feed error: ${feedUrl}`, error);
     }
   }
 
-  if (changed) {
-    state.items = state.items.slice(0, MAX_STORED_ITEMS);
+  if (storageChanged) {
+    state.items = state.items.slice(0, MAX_VISIBLE_ITEMS);
     await saveState(state);
   }
 
   await updateBadge();
 }
 
-function addItemsToState(state, feedUrl, feedItems, markAsRead) {
-  const knownIds = new Set(state.items.map((item) => item.id));
-  let changed = false;
-
-  for (const item of feedItems) {
-    const rawId = item.link || item.guid || item.title;
-
-    if (!rawId) {
-      continue;
-    }
-
-    const id = `${feedUrl}#${rawId}`;
-
-    if (!knownIds.has(id)) {
-      knownIds.add(id);
-
-      state.items.unshift({
-        id,
-        title: cleanText(item.title) || "New item",
-        link: item.link || feedUrl,
-        feedUrl,
-        addedAt: Date.now(),
-        read: Boolean(markAsRead)
-      });
-
-      changed = true;
-    }
-  }
-
-  return changed;
-}
-
 async function updateBadge() {
   const state = await getState();
+
   const unread = state.items.filter((item) => !item.read).length;
 
   const text = unread > 0 ? (unread > 99 ? "99+" : String(unread)) : "";
@@ -260,6 +417,7 @@ async function updateBadge() {
 
 async function markRead(id) {
   const state = await getState();
+
   const item = state.items.find((x) => x.id === id);
 
   if (item && !item.read) {
@@ -279,6 +437,24 @@ async function markAllRead() {
 
   await saveState(state);
   await updateBadge();
+}
+
+function normalizeFeed(feed) {
+  if (typeof feed === "string") {
+    return {
+      url: feed,
+      name: ""
+    };
+  }
+
+  if (feed && typeof feed.url === "string" && feed.url) {
+    return {
+      url: feed.url,
+      name: typeof feed.name === "string" ? feed.name : ""
+    };
+  }
+
+  return null;
 }
 
 function normalizeUrl(input) {
@@ -305,6 +481,12 @@ function normalizeUrl(input) {
   }
 }
 
+function cleanName(value) {
+  return String(value || "")
+    .trim()
+    .slice(0, 80);
+}
+
 function parseItems(xml) {
   const items = [];
 
@@ -315,8 +497,7 @@ function parseItems(xml) {
     const title = getTagValue(block, "title");
 
     const guid =
-      getTagValue(block, "guid") ||
-      getTagValue(block, "id");
+      getTagValue(block, "guid") || getTagValue(block, "id");
 
     let link = "";
 
