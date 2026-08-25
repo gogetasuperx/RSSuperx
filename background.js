@@ -1,14 +1,12 @@
 // Put your RSS/Atom feed URLs here.
 const FEEDS = [
-  "https://hnrss.org/frontpage",
-  "https://feeds.bbci.co.uk/news/rss.xml"
 ];
 
 const ALARM_NAME = "rss-check";
 
 // Chrome may limit this to about 1 minute.
 // Use 5 if you want to be gentler to websites.
-const CHECK_EVERY_MINUTES = 1;
+const CHECK_EVERY_MINUTES = 60;
 
 const MAX_STORED_ITEMS = 200;
 const MAX_ITEMS_PER_FEED = 20;
