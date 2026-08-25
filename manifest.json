@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "RSSuperx",
   "short_name": "RSSuperx",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "RSSuperx shows unread RSS items as a number on the extension icon.",
   "permissions": [
     "storage",
