@@ -1,12 +1,8 @@
-// Put your RSS/Atom feed URLs here.
-const FEEDS = [
-];
-
 const ALARM_NAME = "rss-check";
 
-// Chrome may limit this to about 1 minute.
-// Use 5 if you want to be gentler to websites.
-const CHECK_EVERY_MINUTES = 60;
+// How often to check feeds.
+// 1 minute is fast. Use 5 if you want less battery/network use.
+const CHECK_EVERY_MINUTES = 1;
 
 const MAX_STORED_ITEMS = 200;
 const MAX_ITEMS_PER_FEED = 20;
@@ -14,13 +10,8 @@ const MAX_ITEMS_PER_FEED = 20;
 chrome.runtime.onInstalled.addListener(async () => {
   let state = await getState();
 
-  // First run: mark current feed items as read so you do not get flooded.
   if (!state.initialized) {
-    await checkFeeds(true);
-
-    state = await getState();
     state.initialized = true;
-
     await saveState(state);
   }
 
@@ -46,18 +37,32 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message && message.type === "MARK_READ") {
+  if (!message) {
+    return;
+  }
+
+  if (message.type === "ADD_FEED") {
+    addFeed(message.url).then((result) => sendResponse(result));
+    return true;
+  }
+
+  if (message.type === "REMOVE_FEED") {
+    removeFeed(message.url).then((result) => sendResponse(result));
+    return true;
+  }
+
+  if (message.type === "CLEAR_ITEMS") {
+    clearItems().then((result) => sendResponse(result));
+    return true;
+  }
+
+  if (message.type === "MARK_READ") {
     markRead(message.id).then(() => sendResponse({ ok: true }));
     return true;
   }
 
-  if (message && message.type === "MARK_ALL_READ") {
+  if (message.type === "MARK_ALL_READ") {
     markAllRead().then(() => sendResponse({ ok: true }));
-    return true;
-  }
-
-  if (message && message.type === "GET_STATE") {
-    getState().then((state) => sendResponse({ state }));
     return true;
   }
 });
@@ -65,24 +70,116 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function getState() {
   const { state } = await chrome.storage.local.get("state");
 
-  return (
-    state || {
-      initialized: false,
-      items: []
-    }
-  );
+  const safe = state || {};
+
+  return {
+    initialized: Boolean(safe.initialized),
+    feeds: Array.isArray(safe.feeds) ? safe.feeds : [],
+    items: Array.isArray(safe.items) ? safe.items : []
+  };
 }
 
 async function saveState(state) {
   await chrome.storage.local.set({ state });
 }
 
-async function checkFeeds(markAsRead) {
+async function addFeed(inputUrl) {
+  const url = normalizeUrl(inputUrl);
+
+  if (!url) {
+    return {
+      ok: false,
+      error: "Enter a valid http or https RSS feed URL."
+    };
+  }
+
   const state = await getState();
-  const knownIds = new Set(state.items.map((item) => item.id));
+
+  if (state.feeds.includes(url)) {
+    return {
+      ok: false,
+      error: "Already subscribed to this feed."
+    };
+  }
+
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        Accept:
+          "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
+      }
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Feed returned HTTP ${response.status}.`
+      };
+    }
+
+    const xml = await response.text();
+    const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FEED);
+
+    state.feeds.push(url);
+
+    // Mark existing feed items as read so old posts do not flood the badge.
+    addItemsToState(state, url, feedItems, true);
+
+    state.items = state.items.slice(0, MAX_STORED_ITEMS);
+
+    await saveState(state);
+    await updateBadge();
+
+    return { ok: true };
+  } catch (error) {
+    console.error("Add feed error:", error);
+
+    return {
+      ok: false,
+      error:
+        "Could not load feed. Make sure the URL points directly to RSS/Atom XML."
+    };
+  }
+}
+
+async function removeFeed(inputUrl) {
+  const url = normalizeUrl(inputUrl);
+  const state = await getState();
+
+  state.feeds = state.feeds.filter(
+    (feed) => feed !== url && feed !== inputUrl
+  );
+
+  state.items = state.items.filter(
+    (item) => item.feedUrl !== url && item.feedUrl !== inputUrl
+  );
+
+  await saveState(state);
+  await updateBadge();
+
+  return { ok: true };
+}
+
+async function clearItems() {
+  const state = await getState();
+
+  state.items = [];
+
+  await saveState(state);
+  await updateBadge();
+
+  return { ok: true };
+}
+
+async function checkFeeds(markAsRead, onlyFeedUrl = null) {
+  const state = await getState();
+
+  const feeds = onlyFeedUrl ? [onlyFeedUrl] : state.feeds;
+
   let changed = false;
 
-  for (const feedUrl of FEEDS) {
+  for (const feedUrl of feeds) {
     try {
       const response = await fetch(feedUrl, {
         cache: "no-store",
@@ -100,29 +197,8 @@ async function checkFeeds(markAsRead) {
       const xml = await response.text();
       const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FEED);
 
-      for (const item of feedItems) {
-        const rawId = item.link || item.guid || item.title;
-
-        if (!rawId) {
-          continue;
-        }
-
-        const id = `${feedUrl}#${rawId}`;
-
-        if (!knownIds.has(id)) {
-          knownIds.add(id);
-
-          state.items.unshift({
-            id,
-            title: cleanText(item.title) || "New item",
-            link: item.link || feedUrl,
-            feedUrl,
-            addedAt: Date.now(),
-            read: Boolean(markAsRead)
-          });
-
-          changed = true;
-        }
+      if (addItemsToState(state, feedUrl, feedItems, markAsRead)) {
+        changed = true;
       }
     } catch (error) {
       console.error(`Feed error: ${feedUrl}`, error);
@@ -135,6 +211,38 @@ async function checkFeeds(markAsRead) {
   }
 
   await updateBadge();
+}
+
+function addItemsToState(state, feedUrl, feedItems, markAsRead) {
+  const knownIds = new Set(state.items.map((item) => item.id));
+  let changed = false;
+
+  for (const item of feedItems) {
+    const rawId = item.link || item.guid || item.title;
+
+    if (!rawId) {
+      continue;
+    }
+
+    const id = `${feedUrl}#${rawId}`;
+
+    if (!knownIds.has(id)) {
+      knownIds.add(id);
+
+      state.items.unshift({
+        id,
+        title: cleanText(item.title) || "New item",
+        link: item.link || feedUrl,
+        feedUrl,
+        addedAt: Date.now(),
+        read: Boolean(markAsRead)
+      });
+
+      changed = true;
+    }
+  }
+
+  return changed;
 }
 
 async function updateBadge() {
@@ -173,6 +281,30 @@ async function markAllRead() {
   await updateBadge();
 }
 
+function normalizeUrl(input) {
+  let text = String(input || "").trim();
+
+  if (!text) {
+    return "";
+  }
+
+  if (!/^https?:\/\//i.test(text)) {
+    text = "https://" + text;
+  }
+
+  try {
+    const url = new URL(text);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return "";
+    }
+
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
 function parseItems(xml) {
   const items = [];
 
@@ -188,15 +320,11 @@ function parseItems(xml) {
 
     let link = "";
 
-    // Atom feeds often use:
-    // <link href="https://example.com/article" />
     const linkHrefMatch = block.match(/<link[^>]*href=["']([^"']+)["']/i);
 
     if (linkHrefMatch && linkHrefMatch[1]) {
       link = linkHrefMatch[1].trim();
     } else {
-      // RSS feeds often use:
-      // <link>https://example.com/article</link>
       link = getTagValue(block, "link");
     }
 
