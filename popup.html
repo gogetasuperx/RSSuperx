@@ -98,4 +98,99 @@
     li.empty {
       color: #5f6368;
       text-align: center;
-      padding: 1
+      padding: 16px;
+    }
+
+    .feed-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .feed-url {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #5f6368;
+      font-size: 12px;
+    }
+
+    .small {
+      padding: 2px 8px;
+      font-size: 11px;
+    }
+
+    a {
+      color: #1a73e8;
+      text-decoration: none;
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .meta {
+      color: #5f6368;
+      font-size: 11px;
+    }
+
+    .unread {
+      background: #fff8f8;
+    }
+
+    #fatalError {
+      color: #d93025;
+      white-space: pre-wrap;
+      padding: 8px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span>RSSuperx</span>
+
+    <div class="header-buttons">
+      <button id="clearItems" title="Removes saved articles but keeps your feeds">
+        Clear items
+      </button>
+
+      <button id="markAll">
+        Mark all read
+      </button>
+    </div>
+  </header>
+
+  <section class="subscribe">
+    <input
+      id="feedUrl"
+      type="text"
+      placeholder="Paste RSS/Atom feed URL"
+    />
+
+    <button id="addFeed">
+      Add feed
+    </button>
+
+    <div id="feedError" class="error"></div>
+  </section>
+
+  <section>
+    <div class="section-title">Subscribed feeds</div>
+    <ul id="feedList"></ul>
+  </section>
+
+  <section>
+    <div class="section-title">Items</div>
+    <ul id="list"></ul>
+  </section>
+
+  <pre id="fatalError"></pre>
+
+  <script src="popup.js"></script>
+</body>
+</html>
