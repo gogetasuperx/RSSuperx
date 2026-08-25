@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "RSS Badge Only",
+  "name": "RSSuperx",
+  "short_name": "RSSuperx",
   "version": "0.1.0",
-  "description": "Shows unread RSS items as a number on the extension icon.",
+  "description": "RSSuperx shows unread RSS items as a number on the extension icon.",
   "permissions": [
     "storage",
     "alarms"
@@ -14,7 +15,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "RSS feeds",
+    "default_title": "RSSuperx",
     "default_popup": "popup.html"
   }
 }
