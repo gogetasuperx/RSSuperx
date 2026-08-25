@@ -1,24 +1,71 @@
 async function getState() {
   const { state } = await chrome.storage.local.get("state");
 
-  return state || {
-    initialized: false,
-    items: []
+  const safe = state || {};
+
+  return {
+    feeds: Array.isArray(safe.feeds) ? safe.feeds : [],
+    items: Array.isArray(safe.items) ? safe.items : []
   };
 }
 
 async function render() {
   const state = await getState();
-  const list = document.getElementById("list");
 
+  renderFeeds(state.feeds);
+  renderItems(state.items);
+}
+
+function renderFeeds(feeds) {
+  const feedList = document.getElementById("feedList");
+  feedList.innerHTML = "";
+
+  if (feeds.length === 0) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "No feeds yet. Add one above.";
+    feedList.appendChild(li);
+    return;
+  }
+
+  for (const url of feeds) {
+    const li = document.createElement("li");
+    li.className = "feed-item";
+
+    const span = document.createElement("span");
+    span.className = "feed-url";
+    span.textContent = url;
+    span.title = url;
+
+    const removeButton = document.createElement("button");
+    removeButton.className = "small";
+    removeButton.textContent = "Remove";
+
+    removeButton.addEventListener("click", async () => {
+      await chrome.runtime.sendMessage({
+        type: "REMOVE_FEED",
+        url
+      });
+
+      render();
+    });
+
+    li.appendChild(span);
+    li.appendChild(removeButton);
+    feedList.appendChild(li);
+  }
+}
+
+function renderItems(items) {
+  const list = document.getElementById("list");
   list.innerHTML = "";
 
-  const unread = state.items.filter((item) => !item.read);
-  const read = state.items.filter((item) => item.read).slice(0, 30);
+  const unread = items.filter((item) => !item.read);
+  const read = items.filter((item) => item.read).slice(0, 30);
 
-  const items = [...unread, ...read].slice(0, 100);
+  const visibleItems = [...unread, ...read].slice(0, 100);
 
-  if (items.length === 0) {
+  if (visibleItems.length === 0) {
     const li = document.createElement("li");
     li.className = "empty";
     li.textContent = "No RSS items yet.";
@@ -26,7 +73,7 @@ async function render() {
     return;
   }
 
-  for (const item of items) {
+  for (const item of visibleItems) {
     const li = document.createElement("li");
 
     if (!item.read) {
@@ -65,11 +112,55 @@ async function render() {
   }
 }
 
+async function addFeedFromInput() {
+  const input = document.getElementById("feedUrl");
+  const error = document.getElementById("feedError");
+
+  const url = input.value.trim();
+
+  error.textContent = "";
+
+  if (!url) {
+    error.textContent = "Paste an RSS feed URL first.";
+    return;
+  }
+
+  const response = await chrome.runtime.sendMessage({
+    type: "ADD_FEED",
+    url
+  });
+
+  if (!response || !response.ok) {
+    error.textContent =
+      (response && response.error) || "Could not add feed.";
+    return;
+  }
+
+  input.value = "";
+  render();
+}
+
+document.getElementById("addFeed").addEventListener("click", async () => {
+  await addFeedFromInput();
+});
+
+document.getElementById("feedUrl").addEventListener("keydown", async (event) => {
+  if (event.key === "Enter") {
+    await addFeedFromInput();
+  }
+});
+
 document.getElementById("markAll").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "MARK_ALL_READ" });
   render();
 });
 
+document.getElementById("clearItems").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: "CLEAR_ITEMS" });
+  render();
+});
+
+// Automatically clear badge number when popup is opened.
 (async () => {
   await chrome.runtime.sendMessage({ type: "MARK_ALL_READ" });
   render();
