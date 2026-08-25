@@ -40,13 +40,50 @@ async function sendMessageSafe(message) {
   }
 }
 
+async function getSettings() {
+  try {
+    if (!chrome || !chrome.storage || !chrome.storage.local) {
+      throw new Error("chrome.storage.local is unavailable.");
+    }
+
+    const { settings } = await chrome.storage.local.get("settings");
+
+    const safe = settings || {};
+
+    return {
+      // Default to true if the setting does not exist yet.
+      autoMarkRead: safe.autoMarkRead !== false
+    };
+  } catch (error) {
+    showFatalError(
+      "Settings read error: " +
+        ((error && error.message) || String(error))
+    );
+
+    return {
+      autoMarkRead: true
+    };
+  }
+}
+
+async function saveSettings(settings) {
+  try {
+    if (!chrome || !chrome.storage || !chrome.storage.local) {
+      throw new Error("chrome.storage.local is unavailable.");
+    }
+
+    await chrome.storage.local.set({ settings });
+  } catch (error) {
+    showFatalError(
+      "Settings save error: " +
+        ((error && error.message) || String(error))
+    );
+  }
+}
+
 async function getState() {
   try {
-    if (
-      !chrome ||
-      !chrome.storage ||
-      !chrome.storage.local
-    ) {
+    if (!chrome || !chrome.storage || !chrome.storage.local) {
       throw new Error("chrome.storage.local is unavailable.");
     }
 
@@ -231,6 +268,18 @@ async function addFeedFromInput() {
   render();
 }
 
+async function updateAutoMarkCheckbox() {
+  const checkbox = document.getElementById("autoMarkRead");
+
+  if (!checkbox) {
+    showFatalError("Missing HTML element: #autoMarkRead");
+    return;
+  }
+
+  const settings = await getSettings();
+  checkbox.checked = Boolean(settings.autoMarkRead);
+}
+
 function bindEvents() {
   const addButton = document.getElementById("addFeed");
 
@@ -252,17 +301,6 @@ function bindEvents() {
     });
   }
 
-  const markAllButton = document.getElementById("markAll");
-
-  if (markAllButton) {
-    markAllButton.addEventListener("click", async () => {
-      await sendMessageSafe({ type: "MARK_ALL_READ" });
-      render();
-    });
-  } else {
-    showFatalError("Missing HTML element: #markAll");
-  }
-
   const clearButton = document.getElementById("clearItems");
 
   if (clearButton) {
@@ -273,14 +311,51 @@ function bindEvents() {
   } else {
     showFatalError("Missing HTML element: #clearItems");
   }
+
+  const autoMarkCheckbox = document.getElementById("autoMarkRead");
+
+  if (autoMarkCheckbox) {
+    autoMarkCheckbox.addEventListener("change", async () => {
+      const settings = await getSettings();
+
+      settings.autoMarkRead = autoMarkCheckbox.checked;
+
+      await saveSettings(settings);
+
+      // If the user turns auto-clear on, apply it immediately.
+      if (autoMarkCheckbox.checked) {
+        await sendMessageSafe({ type: "MARK_ALL_READ" });
+      }
+
+      render();
+    });
+  } else {
+    showFatalError("Missing HTML element: #autoMarkRead");
+  }
+
+  // Optional backward compatibility:
+  // If you accidentally leave the old button in popup.html, it still works.
+  const markAllButton = document.getElementById("markAll");
+
+  if (markAllButton) {
+    markAllButton.addEventListener("click", async () => {
+      await sendMessageSafe({ type: "MARK_ALL_READ" });
+      render();
+    });
+  }
 }
 
 (async function init() {
   try {
     bindEvents();
 
-    // Automatically clear badge when popup opens.
-    await sendMessageSafe({ type: "MARK_ALL_READ" });
+    await updateAutoMarkCheckbox();
+
+    const settings = await getSettings();
+
+    if (settings.autoMarkRead) {
+      await sendMessageSafe({ type: "MARK_ALL_READ" });
+    }
 
     await render();
   } catch (error) {
