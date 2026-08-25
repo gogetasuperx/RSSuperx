@@ -51,7 +51,6 @@ async function getSettings() {
     const safe = settings || {};
 
     return {
-      // Default to true if the setting does not exist yet.
       autoMarkRead: safe.autoMarkRead !== false
     };
   } catch (error) {
@@ -81,6 +80,32 @@ async function saveSettings(settings) {
   }
 }
 
+function normalizeFeed(feed) {
+  if (typeof feed === "string") {
+    return {
+      url: feed,
+      name: ""
+    };
+  }
+
+  if (feed && feed.url) {
+    return {
+      url: String(feed.url),
+      name: typeof feed.name === "string" ? feed.name : ""
+    };
+  }
+
+  return null;
+}
+
+function hostname(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
 async function getState() {
   try {
     if (!chrome || !chrome.storage || !chrome.storage.local) {
@@ -91,9 +116,17 @@ async function getState() {
 
     const safe = state || {};
 
+    const feeds = Array.isArray(safe.feeds)
+      ? safe.feeds.map(normalizeFeed).filter(Boolean)
+      : [];
+
+    const items = Array.isArray(safe.items)
+      ? safe.items.filter((item) => item && item.id)
+      : [];
+
     return {
-      feeds: Array.isArray(safe.feeds) ? safe.feeds : [],
-      items: Array.isArray(safe.items) ? safe.items : []
+      feeds,
+      items
     };
   } catch (error) {
     showFatalError(
@@ -112,7 +145,7 @@ async function render() {
     const state = await getState();
 
     renderFeeds(state.feeds);
-    renderItems(state.items);
+    renderItems(state.items, state.feeds);
   } catch (error) {
     showFatalError(
       "Render error: " + ((error && error.message) || String(error))
@@ -138,14 +171,30 @@ function renderFeeds(feeds) {
     return;
   }
 
-  for (const url of feeds) {
+  for (const feed of feeds) {
     const li = document.createElement("li");
     li.className = "feed-item";
 
-    const span = document.createElement("span");
-    span.className = "feed-url";
-    span.textContent = url;
-    span.title = url;
+    const nameInput = document.createElement("input");
+    nameInput.className = "feed-name-input";
+    nameInput.type = "text";
+    nameInput.placeholder = hostname(feed.url);
+    nameInput.value = feed.name || "";
+
+    nameInput.addEventListener("change", async () => {
+      await sendMessageSafe({
+        type: "RENAME_FEED",
+        url: feed.url,
+        name: nameInput.value
+      });
+
+      render();
+    });
+
+    const urlSpan = document.createElement("span");
+    urlSpan.className = "feed-url";
+    urlSpan.textContent = feed.url;
+    urlSpan.title = feed.url;
 
     const removeButton = document.createElement("button");
     removeButton.className = "small";
@@ -154,19 +203,21 @@ function renderFeeds(feeds) {
     removeButton.addEventListener("click", async () => {
       await sendMessageSafe({
         type: "REMOVE_FEED",
-        url
+        url: feed.url
       });
 
       render();
     });
 
-    li.appendChild(span);
+    li.appendChild(nameInput);
+    li.appendChild(urlSpan);
     li.appendChild(removeButton);
+
     feedList.appendChild(li);
   }
 }
 
-function renderItems(items) {
+function renderItems(items, feeds) {
   const list = document.getElementById("list");
 
   if (!list) {
@@ -175,6 +226,10 @@ function renderItems(items) {
   }
 
   list.innerHTML = "";
+
+  const feedNames = new Map(
+    feeds.map((feed) => [feed.url, feed.name || hostname(feed.url)])
+  );
 
   const unread = items.filter((item) => !item.read);
   const read = items.filter((item) => item.read).slice(0, 30);
@@ -225,9 +280,12 @@ function renderItems(items) {
     const meta = document.createElement("div");
     meta.className = "meta";
 
-    meta.textContent = `${item.read ? "Read" : "New"} • ${new Date(
-      item.addedAt
-    ).toLocaleString()}`;
+    const feedName =
+      feedNames.get(item.feedUrl) || hostname(item.feedUrl);
+
+    meta.textContent = `${feedName} • ${
+      item.read ? "Read" : "New"
+    } • ${new Date(item.addedAt).toLocaleString()}`;
 
     li.appendChild(a);
     li.appendChild(meta);
@@ -236,15 +294,17 @@ function renderItems(items) {
 }
 
 async function addFeedFromInput() {
-  const input = document.getElementById("feedUrl");
+  const nameInput = document.getElementById("feedName");
+  const urlInput = document.getElementById("feedUrl");
   const error = document.getElementById("feedError");
 
-  if (!input || !error) {
+  if (!urlInput || !error) {
     showFatalError("Missing HTML element: #feedUrl or #feedError");
     return;
   }
 
-  const url = input.value.trim();
+  const url = urlInput.value.trim();
+  const name = nameInput ? nameInput.value.trim() : "";
 
   error.textContent = "";
 
@@ -255,7 +315,8 @@ async function addFeedFromInput() {
 
   const response = await sendMessageSafe({
     type: "ADD_FEED",
-    url
+    url,
+    name
   });
 
   if (!response || !response.ok) {
@@ -264,7 +325,12 @@ async function addFeedFromInput() {
     return;
   }
 
-  input.value = "";
+  urlInput.value = "";
+
+  if (nameInput) {
+    nameInput.value = "";
+  }
+
   render();
 }
 
@@ -291,10 +357,10 @@ function bindEvents() {
     showFatalError("Missing HTML element: #addFeed");
   }
 
-  const input = document.getElementById("feedUrl");
+  const urlInput = document.getElementById("feedUrl");
 
-  if (input) {
-    input.addEventListener("keydown", async (event) => {
+  if (urlInput) {
+    urlInput.addEventListener("keydown", async (event) => {
       if (event.key === "Enter") {
         await addFeedFromInput();
       }
@@ -322,7 +388,7 @@ function bindEvents() {
 
       await saveSettings(settings);
 
-      // If the user turns auto-clear on, apply it immediately.
+      // If user turns auto-clear on, apply it immediately.
       if (autoMarkCheckbox.checked) {
         await sendMessageSafe({ type: "MARK_ALL_READ" });
       }
@@ -331,17 +397,6 @@ function bindEvents() {
     });
   } else {
     showFatalError("Missing HTML element: #autoMarkRead");
-  }
-
-  // Optional backward compatibility:
-  // If you accidentally leave the old button in popup.html, it still works.
-  const markAllButton = document.getElementById("markAll");
-
-  if (markAllButton) {
-    markAllButton.addEventListener("click", async () => {
-      await sendMessageSafe({ type: "MARK_ALL_READ" });
-      render();
-    });
   }
 }
 
