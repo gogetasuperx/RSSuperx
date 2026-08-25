@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 380px;
+      margin: 0;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      background: #ffffff;
+      color: #202124;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      border-bottom: 1px solid #dadce0;
+      font-weight: bold;
+    }
+
+    button {
+      cursor: pointer;
+      border: 1px solid #dadce0;
+      background: #f8f9fa;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+
+    button:hover {
+      background: #e8eaed;
+    }
+
+    ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      max-height: 440px;
+      overflow: auto;
+    }
+
+    li {
+      padding: 10px;
+      border-bottom: 1px solid #e8eaed;
+    }
+
+    li.empty {
+      color: #5f6368;
+      padding: 18px;
+      text-align: center;
+    }
+
+    a {
+      color: #1a73e8;
+      text-decoration: none;
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .meta {
+      color: #5f6368;
+      font-size: 11px;
+    }
+
+    .unread {
+      background: #fff8f8;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span>RSS</span>
+    <button id="markAll">Mark all read</button>
+  </header>
+
+  <ul id="list"></ul>
+
+  <script src="popup.js"></script>
+</body>
+</html>
