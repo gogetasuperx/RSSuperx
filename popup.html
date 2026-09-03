@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <style>
     body {
-      width: 500px;
+      width: 520px;
       max-height: 580px;
       margin: 0;
       font-family: Arial, sans-serif;
@@ -136,6 +136,22 @@
       font-size: 12px;
     }
 
+    .feed-count {
+      min-width: 22px;
+      text-align: center;
+      background: #d93025;
+      color: #ffffff;
+      border-radius: 10px;
+      padding: 1px 6px;
+      font-size: 11px;
+      flex: none;
+    }
+
+    .feed-count.zero {
+      background: #e8eaed;
+      color: #5f6368;
+    }
+
     .small {
       padding: 2px 8px;
       font-size: 11px;
@@ -161,30 +177,6 @@
       background: #fff8f8;
     }
 
-    .settings {
-      display: flex;
-      align-items: center;
-    }
-
-    .toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: normal;
-      user-select: none;
-    }
-
-    .toggle input {
-      flex: none;
-      min-width: auto;
-      width: auto;
-      padding: 0;
-      margin: 0;
-      cursor: pointer;
-    }
-
     #fatalError {
       color: #d93025;
       white-space: pre-wrap;
@@ -202,16 +194,16 @@
     <span>RSSuperx</span>
 
     <div class="header-buttons">
+      <button id="dismissAll" title="Mark all new items as read.">
+        Dismiss all
+      </button>
+
       <button id="exportData" title="Download your feeds and seen-memory backup.">
         Export
       </button>
 
       <button id="importButton" title="Restore feeds and seen-memory from a backup file.">
         Import
-      </button>
-
-      <button id="clearItems" title="Removes visible items but remembers them as seen.">
-        Clear items
       </button>
     </div>
   </header>
@@ -240,16 +232,6 @@
     </button>
 
     <div id="feedError" class="error"></div>
-  </section>
-
-  <section class="settings">
-    <label
-      class="toggle"
-      title="When enabled, opening RSSuperx clears the badge automatically. For click-to-clear behavior, keep this unchecked."
-    >
-      <input type="checkbox" id="autoMarkRead" />
-      Auto-clear badge when popup opens
-    </label>
   </section>
 
   <section>
