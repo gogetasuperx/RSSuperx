@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <style>
     body {
-      width: 480px;
+      width: 500px;
       max-height: 580px;
       margin: 0;
       font-family: Arial, sans-serif;
@@ -20,10 +20,17 @@
       padding: 10px;
       border-bottom: 1px solid #dadce0;
       font-weight: bold;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .header-buttons {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
     }
 
     .header-buttons button {
-      margin-left: 6px;
       cursor: pointer;
       border: 1px solid #dadce0;
       background: #f8f9fa;
@@ -184,6 +191,10 @@
       padding: 8px;
       font-size: 12px;
     }
+
+    #importFile {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -191,11 +202,25 @@
     <span>RSSuperx</span>
 
     <div class="header-buttons">
+      <button id="exportData" title="Download your feeds and seen-memory backup.">
+        Export
+      </button>
+
+      <button id="importButton" title="Restore feeds and seen-memory from a backup file.">
+        Import
+      </button>
+
       <button id="clearItems" title="Removes visible items but remembers them as seen.">
         Clear items
       </button>
     </div>
   </header>
+
+  <input
+    type="file"
+    id="importFile"
+    accept=".json,application/json"
+  />
 
   <section class="subscribe">
     <input
@@ -220,9 +245,9 @@
   <section class="settings">
     <label
       class="toggle"
-      title="When enabled, opening RSSuperx clears the badge automatically."
+      title="When enabled, opening RSSuperx clears the badge automatically. For click-to-clear behavior, keep this unchecked."
     >
-      <input type="checkbox" id="autoMarkRead" checked />
+      <input type="checkbox" id="autoMarkRead" />
       Auto-clear badge when popup opens
     </label>
   </section>
@@ -233,7 +258,7 @@
   </section>
 
   <section>
-    <div class="section-title">Items</div>
+    <div class="section-title">New items</div>
     <ul id="list"></ul>
   </section>
 
