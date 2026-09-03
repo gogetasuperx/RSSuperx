@@ -50,8 +50,10 @@ async function getSettings() {
 
     const safe = settings || {};
 
+    // Default is false now.
+    // For click-to-clear behavior, opening popup should NOT auto-clear all.
     return {
-      autoMarkRead: safe.autoMarkRead !== false
+      autoMarkRead: safe.autoMarkRead === true
     };
   } catch (error) {
     showFatalError(
@@ -60,7 +62,7 @@ async function getSettings() {
     );
 
     return {
-      autoMarkRead: true
+      autoMarkRead: false
     };
   }
 }
@@ -231,25 +233,23 @@ function renderItems(items, feeds) {
     feeds.map((feed) => [feed.url, feed.name || hostname(feed.url)])
   );
 
-  const unread = items.filter((item) => !item.read);
-  const read = items.filter((item) => item.read).slice(0, 30);
-
-  const visibleItems = [...unread, ...read].slice(0, 100);
+  // Show only unread/new items.
+  // When user clicks one, it becomes read and disappears.
+  const visibleItems = items
+    .filter((item) => !item.read)
+    .slice(0, 100);
 
   if (visibleItems.length === 0) {
     const li = document.createElement("li");
     li.className = "empty";
-    li.textContent = "No RSS items yet.";
+    li.textContent = "No new items.";
     list.appendChild(li);
     return;
   }
 
   for (const item of visibleItems) {
     const li = document.createElement("li");
-
-    if (!item.read) {
-      li.className = "unread";
-    }
+    li.className = "unread";
 
     const a = document.createElement("a");
     a.href = "#";
@@ -269,6 +269,7 @@ function renderItems(items, feeds) {
         }
       }
 
+      // Clicking marks this one item as read/cleared.
       await sendMessageSafe({
         type: "MARK_READ",
         id: item.id
@@ -283,9 +284,9 @@ function renderItems(items, feeds) {
     const feedName =
       feedNames.get(item.feedUrl) || hostname(item.feedUrl);
 
-    meta.textContent = `${feedName} • ${
-      item.read ? "Read" : "New"
-    } • ${new Date(item.addedAt).toLocaleString()}`;
+    meta.textContent = `${feedName} • New • ${new Date(
+      item.addedAt
+    ).toLocaleString()}`;
 
     li.appendChild(a);
     li.appendChild(meta);
@@ -346,6 +347,139 @@ async function updateAutoMarkCheckbox() {
   checkbox.checked = Boolean(settings.autoMarkRead);
 }
 
+async function exportData() {
+  try {
+    if (!chrome || !chrome.storage || !chrome.storage.local) {
+      throw new Error("chrome.storage.local is unavailable.");
+    }
+
+    const { state, settings } = await chrome.storage.local.get([
+      "state",
+      "settings"
+    ]);
+
+    const safeState = state || {};
+
+    const feeds = Array.isArray(safeState.feeds)
+      ? safeState.feeds.map(normalizeFeed).filter(Boolean)
+      : [];
+
+    const seen =
+      safeState.seen &&
+      typeof safeState.seen === "object" &&
+      !Array.isArray(safeState.seen)
+        ? safeState.seen
+        : {};
+
+    const backup = {
+      app: "RSSuperx",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      state: {
+        feeds,
+        seen
+      },
+      settings: settings || {
+        autoMarkRead: false
+      }
+    };
+
+    const json = JSON.stringify(backup, null, 2);
+
+    const blob = new Blob([json], {
+      type: "application/json"
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download =
+      "rssuperx-feeds-" +
+      new Date().toISOString().slice(0, 10) +
+      ".json";
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    showFatalError(
+      "Export error: " + ((error && error.message) || String(error))
+    );
+  }
+}
+
+async function importData(file) {
+  try {
+    if (!file) {
+      return;
+    }
+
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Invalid backup file.");
+    }
+
+    const importedState =
+      parsed.state && typeof parsed.state === "object"
+        ? parsed.state
+        : parsed;
+
+    const feeds = Array.isArray(importedState.feeds)
+      ? importedState.feeds.map(normalizeFeed).filter(Boolean)
+      : [];
+
+    const seen =
+      importedState.seen &&
+      typeof importedState.seen === "object" &&
+      !Array.isArray(importedState.seen)
+        ? importedState.seen
+        : {};
+
+    const ok = window.confirm(
+      `Import ${feeds.length} feeds?\n\nThis will replace your current feed list and seen memory.`
+    );
+
+    if (!ok) {
+      return;
+    }
+
+    const newState = {
+      initialized: true,
+      feeds,
+      items: [],
+      seen
+    };
+
+    await chrome.storage.local.set({ state: newState });
+
+    if (parsed.settings && typeof parsed.settings === "object") {
+      const currentSettings = await getSettings();
+
+      const newSettings = {
+        ...currentSettings,
+        ...parsed.settings
+      };
+
+      await saveSettings(newSettings);
+      await updateAutoMarkCheckbox();
+    }
+
+    // This updates the badge after import.
+    await sendMessageSafe({ type: "MARK_ALL_READ" });
+
+    render();
+  } catch (error) {
+    showFatalError(
+      "Import error: " + ((error && error.message) || String(error))
+    );
+  }
+}
+
 function bindEvents() {
   const addButton = document.getElementById("addFeed");
 
@@ -376,6 +510,35 @@ function bindEvents() {
     });
   } else {
     showFatalError("Missing HTML element: #clearItems");
+  }
+
+  const exportButton = document.getElementById("exportData");
+
+  if (exportButton) {
+    exportButton.addEventListener("click", async () => {
+      await exportData();
+    });
+  } else {
+    showFatalError("Missing HTML element: #exportData");
+  }
+
+  const importButton = document.getElementById("importButton");
+  const importFile = document.getElementById("importFile");
+
+  if (importButton && importFile) {
+    importButton.addEventListener("click", () => {
+      importFile.click();
+    });
+
+    importFile.addEventListener("change", async () => {
+      if (importFile.files && importFile.files[0]) {
+        await importData(importFile.files[0]);
+      }
+
+      importFile.value = "";
+    });
+  } else {
+    showFatalError("Missing HTML element: #importButton or #importFile");
   }
 
   const autoMarkCheckbox = document.getElementById("autoMarkRead");
