@@ -201,30 +201,6 @@
       display: none;
     }
 
-    .options {
-      display: flex;
-      align-items: center;
-    }
-
-    .toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: normal;
-      user-select: none;
-    }
-
-    .toggle input {
-      flex: none;
-      min-width: auto;
-      width: auto;
-      padding: 0;
-      margin: 0;
-      cursor: pointer;
-    }
-
     .status-dot {
       width: 9px;
       height: 9px;
@@ -289,16 +265,6 @@
     </button>
 
     <div id="feedError" class="error"></div>
-  </section>
-
-  <section class="options">
-    <label
-      class="toggle"
-      title="When enabled, importing will add missing feeds instead of replacing your current list."
-    >
-      <input type="checkbox" id="importMerge" />
-      Merge import instead of replacing
-    </label>
   </section>
 
   <section>
