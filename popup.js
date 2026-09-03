@@ -1,5 +1,4 @@
 const MAX_SEEN_PER_FEED = 500;
-const MAX_VISIBLE_ITEMS = 200;
 
 function showFatalError(message) {
   const el = document.getElementById("fatalError");
@@ -119,25 +118,6 @@ async function getState() {
       items: [],
       status: {}
     };
-  }
-}
-
-async function getFullState() {
-  try {
-    if (!chrome || !chrome.storage || !chrome.storage.local) {
-      throw new Error("chrome.storage.local is unavailable.");
-    }
-
-    const { state } = await chrome.storage.local.get("state");
-
-    return state || {};
-  } catch (error) {
-    showFatalError(
-      "Full storage error: " +
-        ((error && error.message) || String(error))
-    );
-
-    return {};
   }
 }
 
@@ -390,15 +370,6 @@ async function addFeedFromInput() {
   render();
 }
 
-function mergeSeenArrays(existing, imported) {
-  const existingArray = Array.isArray(existing) ? existing : [];
-  const importedArray = Array.isArray(imported) ? imported : [];
-
-  return Array.from(
-    new Set([...existingArray, ...importedArray])
-  ).slice(-MAX_SEEN_PER_FEED);
-}
-
 async function exportData() {
   try {
     if (!chrome || !chrome.storage || !chrome.storage.local) {
@@ -462,7 +433,7 @@ async function exportData() {
   }
 }
 
-async function importData(file, merge) {
+async function importData(file) {
   try {
     if (!file) {
       return;
@@ -491,109 +462,35 @@ async function importData(file, merge) {
         ? importedState.seen
         : {};
 
-    if (merge) {
-      const ok = window.confirm(
-        `Merge ${importedFeeds.length} imported feeds into your current list?\n\nExisting feeds will be kept.`
-      );
+    const ok = window.confirm(
+      `Import ${importedFeeds.length} feeds?\n\nThis will replace your current feed list and seen memory.`
+    );
 
-      if (!ok) {
-        return;
-      }
-    } else {
-      const ok = window.confirm(
-        `Import ${importedFeeds.length} feeds?\n\nThis will replace your current feed list and seen memory.`
-      );
-
-      if (!ok) {
-        return;
-      }
+    if (!ok) {
+      return;
     }
 
-    let newState;
+    const replaceSeen = {};
 
-    if (merge) {
-      const currentState = await getFullState();
-
-      const currentFeeds = Array.isArray(currentState.feeds)
-        ? currentState.feeds.map(normalizeFeed).filter(Boolean)
+    for (const feed of importedFeeds) {
+      replaceSeen[feed.url] = Array.isArray(
+        importedSeenRaw[feed.url]
+      )
+        ? importedSeenRaw[feed.url].slice(-MAX_SEEN_PER_FEED)
         : [];
-
-      const currentSeen =
-        currentState.seen &&
-        typeof currentState.seen === "object" &&
-        !Array.isArray(currentState.seen)
-          ? currentState.seen
-          : {};
-
-      const currentStatus =
-        currentState.status &&
-        typeof currentState.status === "object" &&
-        !Array.isArray(currentState.status)
-          ? currentState.status
-          : {};
-
-      const currentItems = Array.isArray(currentState.items)
-        ? currentState.items.filter((item) => item && item.id)
-        : [];
-
-      const feedMap = new Map();
-
-      for (const feed of currentFeeds) {
-        feedMap.set(feed.url, feed);
-      }
-
-      for (const importedFeed of importedFeeds) {
-        const existing = feedMap.get(importedFeed.url);
-
-        if (!existing) {
-          feedMap.set(importedFeed.url, importedFeed);
-        } else {
-          // Keep existing name unless it is empty.
-          if (!existing.name && importedFeed.name) {
-            existing.name = importedFeed.name;
-          }
-        }
-      }
-
-      const mergedSeen = {};
-
-      for (const url of feedMap.keys()) {
-        mergedSeen[url] = mergeSeenArrays(
-          currentSeen[url],
-          importedSeenRaw[url]
-        );
-      }
-
-      newState = {
-        initialized: true,
-        feeds: Array.from(feedMap.values()),
-        items: currentItems.slice(0, MAX_VISIBLE_ITEMS),
-        seen: mergedSeen,
-        status: currentStatus
-      };
-    } else {
-      const replaceSeen = {};
-
-      for (const feed of importedFeeds) {
-        replaceSeen[feed.url] = Array.isArray(
-          importedSeenRaw[feed.url]
-        )
-          ? importedSeenRaw[feed.url].slice(-MAX_SEEN_PER_FEED)
-          : [];
-      }
-
-      newState = {
-        initialized: true,
-        feeds: importedFeeds,
-        items: [],
-        seen: replaceSeen,
-        status: {}
-      };
     }
+
+    const newState = {
+      initialized: true,
+      feeds: importedFeeds,
+      items: [],
+      seen: replaceSeen,
+      status: {}
+    };
 
     await chrome.storage.local.set({ state: newState });
 
-    // Updates badge without marking current merge items as read.
+    // Updates badge after import.
     await sendMessageSafe({ type: "UPDATE_BADGE" });
 
     render();
@@ -655,14 +552,8 @@ function bindEvents() {
     });
 
     importFile.addEventListener("change", async () => {
-      const mergeCheckbox = document.getElementById("importMerge");
-
-      const merge = Boolean(
-        mergeCheckbox && mergeCheckbox.checked
-      );
-
       if (importFile.files && importFile.files[0]) {
-        await importData(importFile.files[0], merge);
+        await importData(importFile.files[0]);
       }
 
       importFile.value = "";
