@@ -10,7 +10,6 @@ const MAX_VISIBLE_ITEMS = 200;
 const MAX_ITEMS_PER_FETCH = 50;
 
 // How many seen item IDs to remember per feed.
-// This prevents old cleared posts from coming back.
 const MAX_SEEN_PER_FEED = 500;
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -82,6 +81,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     markAllRead().then(() => sendResponse({ ok: true }));
     return true;
   }
+
+  if (message.type === "UPDATE_BADGE") {
+    updateBadge().then(() => sendResponse({ ok: true }));
+    return true;
+  }
 });
 
 async function getState() {
@@ -102,11 +106,19 @@ async function getState() {
       ? safe.seen
       : {};
 
+  const status =
+    safe.status &&
+    typeof safe.status === "object" &&
+    !Array.isArray(safe.status)
+      ? safe.status
+      : {};
+
   return {
     initialized: Boolean(safe.initialized),
     feeds,
     items,
-    seen
+    seen,
+    status
   };
 }
 
@@ -134,6 +146,7 @@ async function initializeSeenIfNeeded() {
   const newState = await getState();
 
   newState.seen = {};
+  newState.status = newState.status || {};
 
   for (const feed of newState.feeds) {
     try {
@@ -147,10 +160,18 @@ async function initializeSeenIfNeeded() {
 
       if (!response.ok) {
         newState.seen[feed.url] = [];
+        setStatus(newState, feed.url, false, `HTTP ${response.status}`);
         continue;
       }
 
       const xml = await response.text();
+
+      if (looksLikeHtmlPage(xml)) {
+        newState.seen[feed.url] = [];
+        setStatus(newState, feed.url, false, "Not an RSS/Atom feed");
+        continue;
+      }
+
       const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FETCH);
 
       const rawIds = feedItems
@@ -158,9 +179,11 @@ async function initializeSeenIfNeeded() {
         .filter(Boolean);
 
       newState.seen[feed.url] = rawIds.slice(0, MAX_SEEN_PER_FEED);
+      setStatus(newState, feed.url, true, "Feed OK");
     } catch (error) {
       console.error("initializeSeenIfNeeded feed error:", feed.url, error);
       newState.seen[feed.url] = [];
+      setStatus(newState, feed.url, false, "Could not fetch feed");
     }
   }
 
@@ -173,7 +196,7 @@ async function initializeSeenIfNeeded() {
 
 async function addFeed(inputUrl, inputName) {
   const url = normalizeUrl(inputUrl);
-  const name = cleanName(inputName);
+  const requestedName = cleanName(inputName);
 
   if (!url) {
     return {
@@ -188,10 +211,10 @@ async function addFeed(inputUrl, inputName) {
 
   if (existing) {
     // If user adds same URL with a new name, update name.
-    if (name && existing.name !== name) {
-      existing.name = name;
+    if (requestedName && existing.name !== requestedName) {
+      existing.name = requestedName;
       await saveState(state);
-      return { ok: true };
+      return { ok: true, name: existing.name };
     }
 
     return {
@@ -217,25 +240,44 @@ async function addFeed(inputUrl, inputName) {
     }
 
     const xml = await response.text();
+
+    if (looksLikeHtmlPage(xml)) {
+      return {
+        ok: false,
+        error: "That URL appears to be a normal web page, not RSS/Atom."
+      };
+    }
+
+    const feedTitle = parseFeedTitle(xml);
     const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FETCH);
 
     const rawIds = feedItems
       .map((item) => item.link || item.guid || item.title)
       .filter(Boolean);
 
+    const finalName =
+      requestedName ||
+      feedTitle ||
+      hostnameFromUrl(url);
+
     state.feeds.push({
       url,
-      name
+      name: finalName
     });
 
     // Remember current items as already seen.
     // Do NOT show them as new old posts.
     state.seen[url] = rawIds.slice(0, MAX_SEEN_PER_FEED);
 
+    setStatus(state, url, true, "Feed added");
+
     await saveState(state);
     await updateBadge();
 
-    return { ok: true };
+    return {
+      ok: true,
+      name: finalName
+    };
   } catch (error) {
     console.error("Add feed error:", error);
 
@@ -261,9 +303,11 @@ async function removeFeed(inputUrl) {
   );
 
   delete state.seen[url];
+  delete state.status[url];
 
   if (inputUrl && inputUrl !== url) {
     delete state.seen[inputUrl];
+    delete state.status[inputUrl];
   }
 
   await saveState(state);
@@ -335,10 +379,28 @@ async function checkFeeds(markAsRead, onlyFeedUrl = null) {
 
       if (!response.ok) {
         console.warn(`Feed failed: ${feedUrl} ${response.status}`);
+
+        if (
+          setStatus(state, feedUrl, false, `HTTP ${response.status}`)
+        ) {
+          storageChanged = true;
+        }
+
         continue;
       }
 
       const xml = await response.text();
+
+      if (looksLikeHtmlPage(xml)) {
+        if (
+          setStatus(state, feedUrl, false, "Not an RSS/Atom feed")
+        ) {
+          storageChanged = true;
+        }
+
+        continue;
+      }
+
       const feedItems = parseItems(xml).slice(0, MAX_ITEMS_PER_FETCH);
 
       if (!Array.isArray(state.seen[feedUrl])) {
@@ -388,8 +450,16 @@ async function checkFeeds(markAsRead, onlyFeedUrl = null) {
 
         storageChanged = true;
       }
+
+      if (setStatus(state, feedUrl, true, "Feed OK")) {
+        storageChanged = true;
+      }
     } catch (error) {
       console.error(`Feed error: ${feedUrl}`, error);
+
+      if (setStatus(state, feedUrl, false, "Could not fetch feed")) {
+        storageChanged = true;
+      }
     }
   }
 
@@ -399,6 +469,26 @@ async function checkFeeds(markAsRead, onlyFeedUrl = null) {
   }
 
   await updateBadge();
+}
+
+function setStatus(state, feedUrl, ok, message) {
+  if (!state.status || typeof state.status !== "object") {
+    state.status = {};
+  }
+
+  const current = state.status[feedUrl] || {};
+
+  if (current.ok === ok && current.message === message) {
+    return false;
+  }
+
+  state.status[feedUrl] = {
+    ok,
+    message,
+    lastChecked: Date.now()
+  };
+
+  return true;
 }
 
 async function updateBadge() {
@@ -481,10 +571,62 @@ function normalizeUrl(input) {
   }
 }
 
+function hostnameFromUrl(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
 function cleanName(value) {
   return String(value || "")
     .trim()
     .slice(0, 80);
+}
+
+function looksLikeHtmlPage(xml) {
+  const sample = String(xml || "")
+    .slice(0, 1000)
+    .toLowerCase();
+
+  const looksHtml =
+    sample.includes("<html") ||
+    sample.includes("<!doctype html");
+
+  const looksFeed =
+    sample.includes("<rss") ||
+    sample.includes("<feed") ||
+    sample.includes("<item") ||
+    sample.includes("<entry");
+
+  return looksHtml && !looksFeed;
+}
+
+function parseFeedTitle(xml) {
+  let match = xml.match(
+    /<channel[^>]*>[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/i
+  );
+
+  if (!match) {
+    match = xml.match(
+      /<feed[^>]*>[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/i
+    );
+  }
+
+  if (!match) {
+    match = xml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  }
+
+  if (!match) {
+    return "";
+  }
+
+  let title = match[1].trim();
+
+  title = title.replace(/^<!\[CDATA\[|\]\]>$/g, "");
+
+  return cleanText(title).slice(0, 80);
 }
 
 function parseItems(xml) {
