@@ -7,6 +7,7 @@ RSSuperx is designed for people who just want to know when a website updates, wi
 ## ✨ Features
 
 - **3 Themes:** Black, Dim, Light.
+- **Check Interval:** The Check every dropdown to select between 1 minute, 5 minutes, 15 minutes, 30 minutes, 1 hour.
 - **Click-to-Clear:** Click an article to open it in a new tab and automatically clear it from your notification list.
 - **Smart "Seen" Memory:** If you dismiss an item or clear your list, the extension remembers it. Old articles will never reappear as "new" updates.
 - **Auto-Fetch Feed Names:** Leave the name field blank when adding a feed, and RSSuperx will automatically extract the site's title from the RSS/Atom XML.
