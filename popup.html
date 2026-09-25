@@ -14,8 +14,60 @@
       margin: 0;
       font-family: Arial, sans-serif;
       font-size: 13px;
-      background: #000000;
-      color: #e8eaed;
+
+      background: var(--bg);
+      color: var(--text);
+
+      --bg: #000000;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --border: #3c4043;
+      --border-soft: #1f1f1f;
+      --input-bg: #111111;
+      --button-bg: #202124;
+      --button-hover: #303134;
+      --link: #8ab4f8;
+      --error: #ff4d4f;
+      --unread-bg: #1a1111;
+
+      --count-bg: #d93025;
+      --count-text: #ffffff;
+      --count-zero-bg: #3c4043;
+      --count-zero-text: #9aa0a6;
+
+      --status-ok: #34a853;
+      --status-error: #ea4335;
+      --status-unknown: #9aa0a6;
+
+      color-scheme: dark;
+    }
+
+    body[data-theme="dim"] {
+      --bg: #121212;
+      --border-soft: #232323;
+      --input-bg: #1a1a1a;
+      --button-bg: #242424;
+      --button-hover: #323232;
+      --unread-bg: #241414;
+    }
+
+    body[data-theme="light"] {
+      --bg: #ffffff;
+      --text: #202124;
+      --muted: #5f6368;
+      --border: #dadce0;
+      --border-soft: #e8eaed;
+      --input-bg: #ffffff;
+      --button-bg: #f8f9fa;
+      --button-hover: #e8eaed;
+      --link: #1a73e8;
+      --error: #d93025;
+      --unread-bg: #fff8f8;
+
+      --count-zero-bg: #e8eaed;
+      --count-zero-text: #5f6368;
+
+      color-scheme: light;
     }
 
     header {
@@ -23,7 +75,7 @@
       justify-content: space-between;
       align-items: center;
       padding: 10px;
-      border-bottom: 1px solid #3c4043;
+      border-bottom: 1px solid var(--border);
       font-weight: bold;
       gap: 8px;
       flex-wrap: wrap;
@@ -37,9 +89,9 @@
 
     .header-buttons button {
       cursor: pointer;
-      border: 1px solid #3c4043;
-      background: #202124;
-      color: #e8eaed;
+      border: 1px solid var(--border);
+      background: var(--button-bg);
+      color: var(--text);
       border-radius: 4px;
       padding: 4px 8px;
       font-size: 12px;
@@ -47,12 +99,12 @@
     }
 
     .header-buttons button:hover {
-      background: #303134;
+      background: var(--button-hover);
     }
 
     section {
       padding: 10px;
-      border-bottom: 1px solid #1f1f1f;
+      border-bottom: 1px solid var(--border-soft);
     }
 
     .subscribe {
@@ -66,14 +118,14 @@
       flex: 1;
       min-width: 240px;
       padding: 6px;
-      border: 1px solid #3c4043;
+      border: 1px solid var(--border);
       border-radius: 4px;
-      background: #111111;
-      color: #e8eaed;
+      background: var(--input-bg);
+      color: var(--text);
     }
 
     input::placeholder {
-      color: #9aa0a6;
+      color: var(--muted);
     }
 
     #feedName {
@@ -83,20 +135,20 @@
 
     button {
       cursor: pointer;
-      border: 1px solid #3c4043;
-      background: #202124;
-      color: #e8eaed;
+      border: 1px solid var(--border);
+      background: var(--button-bg);
+      color: var(--text);
       border-radius: 4px;
       padding: 6px 10px;
     }
 
     button:hover {
-      background: #303134;
+      background: var(--button-hover);
     }
 
     .error {
       width: 100%;
-      color: #ff4d4f;
+      color: var(--error);
       font-size: 12px;
       margin-top: 4px;
       min-height: 14px;
@@ -117,11 +169,11 @@
 
     li {
       padding: 8px;
-      border-bottom: 1px solid #1f1f1f;
+      border-bottom: 1px solid var(--border-soft);
     }
 
     li.empty {
-      color: #9aa0a6;
+      color: var(--muted);
       text-align: center;
       padding: 16px;
     }
@@ -145,15 +197,15 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      color: #9aa0a6;
+      color: var(--muted);
       font-size: 12px;
     }
 
     .feed-count {
       min-width: 22px;
       text-align: center;
-      background: #d93025;
-      color: #ffffff;
+      background: var(--count-bg);
+      color: var(--count-text);
       border-radius: 10px;
       padding: 1px 6px;
       font-size: 11px;
@@ -161,8 +213,8 @@
     }
 
     .feed-count.zero {
-      background: #3c4043;
-      color: #9aa0a6;
+      background: var(--count-zero-bg);
+      color: var(--count-zero-text);
     }
 
     .small {
@@ -171,7 +223,7 @@
     }
 
     a {
-      color: #8ab4f8;
+      color: var(--link);
       text-decoration: none;
       display: block;
       margin-bottom: 3px;
@@ -182,16 +234,16 @@
     }
 
     .meta {
-      color: #9aa0a6;
+      color: var(--muted);
       font-size: 11px;
     }
 
     .unread {
-      background: #1a1111;
+      background: var(--unread-bg);
     }
 
     #fatalError {
-      color: #ff4d4f;
+      color: var(--error);
       white-space: pre-wrap;
       padding: 8px;
       font-size: 12px;
@@ -210,45 +262,45 @@
     }
 
     .status-dot.ok {
-      background: #34a853;
+      background: var(--status-ok);
     }
 
     .status-dot.error {
-      background: #ea4335;
+      background: var(--status-error);
     }
 
     .status-dot.unknown {
-      background: #9aa0a6;
+      background: var(--status-unknown);
     }
 
     .settings-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
 
-.select-label {
-  font-size: 12px;
-  color: #e8eaed;
-}
+    .select-label {
+      font-size: 12px;
+      color: var(--text);
+    }
 
-select {
-  background: #111111;
-  color: #e8eaed;
-  border: 1px solid #3c4043;
-  border-radius: 4px;
-  padding: 5px;
-  max-width: 180px;
-  cursor: pointer;
-}
+    select {
+      background: var(--input-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 5px;
+      max-width: 180px;
+      cursor: pointer;
+    }
 
-select:hover {
-  border-color: #5f6368;
-}
+    select:hover {
+      border-color: var(--muted);
+    }
   </style>
 </head>
-<body>
+<body data-theme="black">
   <header>
     <span>RSSuperx</span>
 
@@ -294,19 +346,17 @@ select:hover {
   </section>
 
   <section class="settings-row">
-  <label class="select-label" for="checkInterval">
-    Check every
-  </label>
+    <label class="select-label" for="themeSelect">
+      Theme
+    </label>
 
-  <select id="checkInterval">
-    <option value="1">1 minute</option>
-    <option value="5" selected>5 minutes</option>
-    <option value="15">15 minutes</option>
-    <option value="30">30 minutes</option>
-    <option value="60">1 hour</option>
-  </select>
-</section>
-  
+    <select id="themeSelect">
+      <option value="black" selected>Black</option>
+      <option value="dim">Dim</option>
+      <option value="light">Light</option>
+    </select>
+  </section>
+
   <section>
     <div class="section-title">Subscribed feeds</div>
     <ul id="feedList"></ul>
