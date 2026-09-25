@@ -121,6 +121,33 @@ async function getState() {
   }
 }
 
+async function loadCheckInterval() {
+  const select = document.getElementById("checkInterval");
+
+  if (!select) {
+    return;
+  }
+
+  try {
+    const { settings } = await chrome.storage.local.get("settings");
+
+    const safe = settings || {};
+
+    const allowed = [1, 5, 15, 30, 60];
+
+    const current = Number(safe.checkIntervalMinutes);
+
+    const value = allowed.includes(current) ? current : 5;
+
+    select.value = String(value);
+  } catch (error) {
+    showFatalError(
+      "Could not load check interval: " +
+        ((error && error.message) || String(error))
+    );
+  }
+}
+
 async function render() {
   try {
     const state = await getState();
@@ -519,6 +546,19 @@ function bindEvents() {
       if (event.key === "Enter") {
         await addFeedFromInput();
       }
+
+        const checkIntervalSelect = document.getElementById("checkInterval");
+
+  if (checkIntervalSelect) {
+    checkIntervalSelect.addEventListener("change", async () => {
+      await sendMessageSafe({
+        type: "SET_CHECK_INTERVAL",
+        minutes: Number(checkIntervalSelect.value)
+      });
+    });
+  } else {
+    showFatalError("Missing HTML element: #checkInterval");
+  }
     });
   }
 
@@ -566,6 +606,7 @@ function bindEvents() {
 (async function init() {
   try {
     bindEvents();
+    await loadCheckInterval();
     await render();
   } catch (error) {
     showFatalError(
