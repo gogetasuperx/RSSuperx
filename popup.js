@@ -1,4 +1,5 @@
 const MAX_SEEN_PER_FEED = 500;
+const ALLOWED_THEMES = ["black", "dim", "light"];
 
 function showFatalError(message) {
   const el = document.getElementById("fatalError");
@@ -78,6 +79,64 @@ function hostname(url) {
   }
 }
 
+function applyTheme(theme) {
+  if (!ALLOWED_THEMES.includes(theme)) {
+    theme = "black";
+  }
+
+  document.body.dataset.theme = theme;
+}
+
+async function loadTheme() {
+  try {
+    const { settings } = await chrome.storage.local.get("settings");
+
+    const safe = settings || {};
+
+    const theme = ALLOWED_THEMES.includes(safe.theme)
+      ? safe.theme
+      : "black";
+
+    applyTheme(theme);
+
+    const themeSelect = document.getElementById("themeSelect");
+
+    if (themeSelect) {
+      themeSelect.value = theme;
+    }
+  } catch (error) {
+    showFatalError(
+      "Theme load error: " +
+        ((error && error.message) || String(error))
+    );
+  }
+}
+
+async function saveTheme(theme) {
+  try {
+    if (!ALLOWED_THEMES.includes(theme)) {
+      theme = "black";
+    }
+
+    const { settings } = await chrome.storage.local.get("settings");
+
+    const newSettings = Object.assign(
+      {},
+      settings || {},
+      {
+        theme
+      }
+    );
+
+    await chrome.storage.local.set({ settings: newSettings });
+  } catch (error) {
+    showFatalError(
+      "Theme save error: " +
+        ((error && error.message) || String(error))
+    );
+  }
+}
+
 async function getState() {
   try {
     if (!chrome || !chrome.storage || !chrome.storage.local) {
@@ -118,33 +177,6 @@ async function getState() {
       items: [],
       status: {}
     };
-  }
-}
-
-async function loadCheckInterval() {
-  const select = document.getElementById("checkInterval");
-
-  if (!select) {
-    return;
-  }
-
-  try {
-    const { settings } = await chrome.storage.local.get("settings");
-
-    const safe = settings || {};
-
-    const allowed = [1, 5, 15, 30, 60];
-
-    const current = Number(safe.checkIntervalMinutes);
-
-    const value = allowed.includes(current) ? current : 5;
-
-    select.value = String(value);
-  } catch (error) {
-    showFatalError(
-      "Could not load check interval: " +
-        ((error && error.message) || String(error))
-    );
   }
 }
 
@@ -546,19 +578,6 @@ function bindEvents() {
       if (event.key === "Enter") {
         await addFeedFromInput();
       }
-
-        const checkIntervalSelect = document.getElementById("checkInterval");
-
-  if (checkIntervalSelect) {
-    checkIntervalSelect.addEventListener("change", async () => {
-      await sendMessageSafe({
-        type: "SET_CHECK_INTERVAL",
-        minutes: Number(checkIntervalSelect.value)
-      });
-    });
-  } else {
-    showFatalError("Missing HTML element: #checkInterval");
-  }
     });
   }
 
@@ -601,12 +620,25 @@ function bindEvents() {
   } else {
     showFatalError("Missing HTML element: #importButton or #importFile");
   }
+
+  const themeSelect = document.getElementById("themeSelect");
+
+  if (themeSelect) {
+    themeSelect.addEventListener("change", async () => {
+      const theme = themeSelect.value;
+
+      applyTheme(theme);
+      await saveTheme(theme);
+    });
+  } else {
+    showFatalError("Missing HTML element: #themeSelect");
+  }
 }
 
 (async function init() {
   try {
     bindEvents();
-    await loadCheckInterval();
+    await loadTheme();
     await render();
   } catch (error) {
     showFatalError(
