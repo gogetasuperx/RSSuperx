@@ -1,5 +1,8 @@
 const MAX_SEEN_PER_FEED = 500;
+
 const ALLOWED_THEMES = ["black", "dim", "light"];
+const DEFAULT_CHECK_INTERVAL = 5;
+const ALLOWED_CHECK_INTERVALS = [1, 5, 15, 30, 60];
 
 function showFatalError(message) {
   const el = document.getElementById("fatalError");
@@ -132,6 +135,33 @@ async function saveTheme(theme) {
   } catch (error) {
     showFatalError(
       "Theme save error: " +
+        ((error && error.message) || String(error))
+    );
+  }
+}
+
+async function loadCheckInterval() {
+  const select = document.getElementById("checkInterval");
+
+  if (!select) {
+    return;
+  }
+
+  try {
+    const { settings } = await chrome.storage.local.get("settings");
+
+    const safe = settings || {};
+
+    const current = Number(safe.checkIntervalMinutes);
+
+    const value = ALLOWED_CHECK_INTERVALS.includes(current)
+      ? current
+      : DEFAULT_CHECK_INTERVAL;
+
+    select.value = String(value);
+  } catch (error) {
+    showFatalError(
+      "Check interval load error: " +
         ((error && error.message) || String(error))
     );
   }
@@ -633,12 +663,33 @@ function bindEvents() {
   } else {
     showFatalError("Missing HTML element: #themeSelect");
   }
+
+  const checkIntervalSelect = document.getElementById("checkInterval");
+
+  if (checkIntervalSelect) {
+    checkIntervalSelect.addEventListener("change", async () => {
+      const response = await sendMessageSafe({
+        type: "SET_CHECK_INTERVAL",
+        minutes: Number(checkIntervalSelect.value)
+      });
+
+      if (!response || !response.ok) {
+        showFatalError(
+          "Could not set check interval. Make sure background.js was updated.\n" +
+            ((response && response.error) || "No response from background.")
+        );
+      }
+    });
+  } else {
+    showFatalError("Missing HTML element: #checkInterval");
+  }
 }
 
 (async function init() {
   try {
     bindEvents();
     await loadTheme();
+    await loadCheckInterval();
     await render();
   } catch (error) {
     showFatalError(
