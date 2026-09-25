@@ -1,7 +1,8 @@
 const ALARM_NAME = "rss-check";
 
 // How often to check feeds.
-const CHECK_EVERY_MINUTES = 1;
+const DEFAULT_CHECK_MINUTES = 5;
+const ALLOWED_CHECK_MINUTES = [1, 5, 15, 30, 60];
 
 // How many visible items to keep in popup list.
 const MAX_VISIBLE_ITEMS = 200;
