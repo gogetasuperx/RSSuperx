@@ -23,18 +23,12 @@ chrome.runtime.onInstalled.addListener(async () => {
     await saveState(state);
   }
 
+  await createCheckAlarm();
   await updateBadge();
-
-  chrome.alarms.create(ALARM_NAME, {
-    periodInMinutes: CHECK_EVERY_MINUTES
-  });
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  chrome.alarms.create(ALARM_NAME, {
-    periodInMinutes: CHECK_EVERY_MINUTES
-  });
-
+  await createCheckAlarm();
   await checkFeeds(false);
 });
 
@@ -85,6 +79,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "UPDATE_BADGE") {
     updateBadge().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+    if (message.type === "SET_CHECK_INTERVAL") {
+    setCheckInterval(message.minutes).then((result) =>
+      sendResponse(result)
+    );
     return true;
   }
 });
@@ -628,6 +629,71 @@ function parseFeedTitle(xml) {
   title = title.replace(/^<!\[CDATA\[|\]\]>$/g, "");
 
   return cleanText(title).slice(0, 80);
+}
+
+async function getCheckIntervalMinutes() {
+  try {
+    const { settings } = await chrome.storage.local.get("settings");
+
+    const safe = settings || {};
+
+    const minutes = Number(safe.checkIntervalMinutes);
+
+    if (ALLOWED_CHECK_MINUTES.includes(minutes)) {
+      return minutes;
+    }
+  } catch (error) {
+    console.error("getCheckIntervalMinutes error:", error);
+  }
+
+  return DEFAULT_CHECK_MINUTES;
+}
+
+async function createCheckAlarm() {
+  const minutes = await getCheckIntervalMinutes();
+
+  chrome.alarms.create(ALARM_NAME, {
+    periodInMinutes: minutes
+  });
+}
+
+async function setCheckInterval(minutes) {
+  const value = Number(minutes);
+
+  if (!ALLOWED_CHECK_MINUTES.includes(value)) {
+    return {
+      ok: false,
+      error: "Invalid check interval."
+    };
+  }
+
+  try {
+    const { settings } = await chrome.storage.local.get("settings");
+
+    const newSettings = Object.assign(
+      {},
+      settings || {},
+      {
+        checkIntervalMinutes: value
+      }
+    );
+
+    await chrome.storage.local.set({ settings: newSettings });
+
+    await createCheckAlarm();
+
+    return {
+      ok: true,
+      minutes: value
+    };
+  } catch (error) {
+    console.error("setCheckInterval error:", error);
+
+    return {
+      ok: false,
+      error: "Could not save check interval."
+    };
+  }
 }
 
 function parseItems(xml) {
