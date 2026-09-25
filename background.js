@@ -1,6 +1,5 @@
 const ALARM_NAME = "rss-check";
 
-// How often to check feeds.
 const DEFAULT_CHECK_MINUTES = 5;
 const ALLOWED_CHECK_MINUTES = [1, 5, 15, 30, 60];
 
@@ -82,7 +81,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-    if (message.type === "SET_CHECK_INTERVAL") {
+  if (message.type === "SET_CHECK_INTERVAL") {
     setCheckInterval(message.minutes).then((result) =>
       sendResponse(result)
     );
@@ -126,6 +125,71 @@ async function getState() {
 
 async function saveState(state) {
   await chrome.storage.local.set({ state });
+}
+
+async function getCheckIntervalMinutes() {
+  try {
+    const { settings } = await chrome.storage.local.get("settings");
+
+    const safe = settings || {};
+
+    const minutes = Number(safe.checkIntervalMinutes);
+
+    if (ALLOWED_CHECK_MINUTES.includes(minutes)) {
+      return minutes;
+    }
+  } catch (error) {
+    console.error("getCheckIntervalMinutes error:", error);
+  }
+
+  return DEFAULT_CHECK_MINUTES;
+}
+
+async function createCheckAlarm() {
+  const minutes = await getCheckIntervalMinutes();
+
+  chrome.alarms.create(ALARM_NAME, {
+    periodInMinutes: minutes
+  });
+}
+
+async function setCheckInterval(minutes) {
+  const value = Number(minutes);
+
+  if (!ALLOWED_CHECK_MINUTES.includes(value)) {
+    return {
+      ok: false,
+      error: "Invalid check interval."
+    };
+  }
+
+  try {
+    const { settings } = await chrome.storage.local.get("settings");
+
+    const newSettings = Object.assign(
+      {},
+      settings || {},
+      {
+        checkIntervalMinutes: value
+      }
+    );
+
+    await chrome.storage.local.set({ settings: newSettings });
+
+    await createCheckAlarm();
+
+    return {
+      ok: true,
+      minutes: value
+    };
+  } catch (error) {
+    console.error("setCheckInterval error:", error);
+
+    return {
+      ok: false,
+      error: "Could not save check interval."
+    };
+  }
 }
 
 // One-time migration:
@@ -629,71 +693,6 @@ function parseFeedTitle(xml) {
   title = title.replace(/^<!\[CDATA\[|\]\]>$/g, "");
 
   return cleanText(title).slice(0, 80);
-}
-
-async function getCheckIntervalMinutes() {
-  try {
-    const { settings } = await chrome.storage.local.get("settings");
-
-    const safe = settings || {};
-
-    const minutes = Number(safe.checkIntervalMinutes);
-
-    if (ALLOWED_CHECK_MINUTES.includes(minutes)) {
-      return minutes;
-    }
-  } catch (error) {
-    console.error("getCheckIntervalMinutes error:", error);
-  }
-
-  return DEFAULT_CHECK_MINUTES;
-}
-
-async function createCheckAlarm() {
-  const minutes = await getCheckIntervalMinutes();
-
-  chrome.alarms.create(ALARM_NAME, {
-    periodInMinutes: minutes
-  });
-}
-
-async function setCheckInterval(minutes) {
-  const value = Number(minutes);
-
-  if (!ALLOWED_CHECK_MINUTES.includes(value)) {
-    return {
-      ok: false,
-      error: "Invalid check interval."
-    };
-  }
-
-  try {
-    const { settings } = await chrome.storage.local.get("settings");
-
-    const newSettings = Object.assign(
-      {},
-      settings || {},
-      {
-        checkIntervalMinutes: value
-      }
-    );
-
-    await chrome.storage.local.set({ settings: newSettings });
-
-    await createCheckAlarm();
-
-    return {
-      ok: true,
-      minutes: value
-    };
-  } catch (error) {
-    console.error("setCheckInterval error:", error);
-
-    return {
-      ok: false,
-      error: "Could not save check interval."
-    };
-  }
 }
 
 function parseItems(xml) {
